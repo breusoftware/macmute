@@ -6,10 +6,11 @@ A lightweight menu bar utility that mutes your Mac's current default input devic
 
 - Menu bar icon (🎙 / 🔇) reflecting mute state
 - Explicit unavailable-state icon when CoreAudio cannot verify the microphone state
-- Global hotkey (default: ⌥⌘M, or bind the standalone `fn` key), configurable in Preferences, with three interactions:
+- Global hotkey (default: ⌥⌘M, or bind the standalone `fn` key), configurable in Preferences, with selectable **Push to Mute**, **Push to Unmute**, and **Toggle** modes. In either push mode:
   - **Tap**: performs the current mode's action and leaves it
   - **Hold**: performs the action while held, reverts to the prior state on release
   - **Double-click**: switches between "Push to Mute" and "Push to Unmute" mode and briefly shows the selected mode in the menu bar icon
+- **Toggle mode**: each hotkey press immediately alternates mute/unmute. Holding does not repeat or revert; two quick presses toggle twice without switching modes. Selecting Toggle preserves the current microphone state.
 - Mode can also be set directly from the menu bar dropdown
 - Launch at Login (in Preferences)
 - Tracks the default input device — if you switch microphones while muted, the new device is muted too
@@ -18,6 +19,14 @@ A lightweight menu bar utility that mutes your Mac's current default input devic
 ## How it works
 
 MacMute never records or transmits audio. It only flips the input device's writable `Mute` property (or, on devices without one, zeroes the writable master input volume and restores the verified per-device baseline) through CoreAudio. Every requested state change is read back before the menu bar reports success.
+
+## Xcode
+
+Open `MacMute.xcodeproj` and select the shared **MacMute** scheme. It includes the native macOS app and `MacMuteAppTests` targets, uses the existing sources and Info.plist, and generates the app icon from `Resources/RaptorIcon.png`.
+
+Run with **Product → Run**, test with **Product → Test**, or archive the Release configuration with **Product → Archive**. Signing uses Breu Software LLC's team (`6Q66ZYGK4J`) with automatic signing and hardened runtime. For direct distribution, choose **Developer ID** in Organizer. The project is configured for direct distribution; App Store distribution would require a separate sandbox/capabilities review.
+
+The shell release pipeline below remains available for a tested, signed, notarized DMG.
 
 ## Build (no Xcode required)
 

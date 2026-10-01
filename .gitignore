@@ -2,11 +2,13 @@
 .build/
 .swiftpm/
 
-# Xcode (in case a project/workspace ever gets generated)
-*.xcodeproj/
+# Xcode: keep project files and shared schemes; ignore local/generated state
 *.xcworkspace/
 xcuserdata/
+*.xcuserstate
 DerivedData/
+*.xcarchive/
+*.xcresult/
 
 # Build output of Scripts/build_app.sh and Scripts/build_dmg.sh
 /MacMute.app

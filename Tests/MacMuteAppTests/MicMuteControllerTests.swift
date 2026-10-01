@@ -929,6 +929,83 @@ final class MicMuteControllerTests: XCTestCase {
         XCTAssertEqual(cancellations, 1)
     }
 
+    func testToggleModeAlternatesImmediatelyAndIgnoresHoldAndRepeat() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = false
+        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: mic, playsFeedback: false, observesWake: false,
+            initialMode: .toggle
+        )
+
+        gesture.handleDown()
+        XCTAssertEqual(mic.state, .muted)
+        gesture.handleDown()
+        gesture.beginHold()
+        gesture.handleUp()
+        XCTAssertEqual(mic.state, .muted)
+        gesture.handleDown()
+        XCTAssertEqual(mic.state, .unmuted)
+        gesture.handleUp()
+        XCTAssertEqual(gesture.mode, .toggle)
+        XCTAssertEqual(hardware.setMuteCalls.map(\.muted), [true, false])
+    }
+
+    func testSelectingToggleModePreservesCurrentMicrophoneState() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = true
+        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: mic, playsFeedback: false, observesWake: false,
+            initialMode: .pushToMute
+        )
+        XCTAssertTrue(gesture.setMode(.toggle))
+        XCTAssertEqual(gesture.mode, .toggle)
+        XCTAssertEqual(mic.state, .muted)
+        XCTAssertTrue(hardware.setMuteCalls.isEmpty)
+    }
+
+    func testToggleRefreshesExternalStateAndCancellationAllowsNextPress() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = false
+        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: mic, playsFeedback: false, observesWake: false,
+            initialMode: .toggle
+        )
+        hardware.mutes[1] = true
+        gesture.handleDown()
+        XCTAssertEqual(mic.state, .unmuted)
+        gesture.cancelActiveGesture()
+        XCTAssertEqual(mic.state, .unmuted)
+        gesture.handleDown()
+        XCTAssertEqual(mic.state, .muted)
+        gesture.handleUp()
+    }
+
+    func testToggleFailedWriteDoesNotReportSuccessAndNextPressCanRetry() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = false
+        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: mic, playsFeedback: false, observesWake: false,
+            initialMode: .toggle
+        )
+        hardware.muteWritesSucceed = false
+        gesture.handleDown()
+        XCTAssertNotEqual(mic.state, .muted)
+        XCTAssertEqual(hardware.mutes[1], false)
+        gesture.handleUp()
+        hardware.muteWritesSucceed = true
+        gesture.handleDown()
+        XCTAssertEqual(mic.state, .muted)
+        gesture.handleUp()
+    }
+
     func testSingleTapRunsModeActionAfterDoubleClickWindow() {
         let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
         hardware.muteProperties.insert(1)
@@ -1481,4 +1558,109 @@ private final class FakeLaunchService: LaunchServiceControlling {
         if let error { throw error }
         status = statusAfterUnregister
     }
+}
+
+extension MicMuteControllerTests {
+    func testDeferredUnmuteHoldMustRestoreMuteAfterRelease() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = true
+        hardware.deferMuteWrites = true
+        let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: controller, playsFeedback: false,
+            observesWake: false, initialMode: .pushToUnmute
+        )
+        gesture.beginHold()
+        gesture.handleUp()
+        hardware.completeDeferredWrites()
+        hardware.deferMuteWrites = false
+        controller.refreshState()
+        XCTAssertEqual(controller.state, .muted)
+    }
+
+    func testCapabilityChangeMustRestoreDepartingFallbackVolume() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.volumes[1] = 0.35
+        hardware.volumes[2] = 0.6
+        let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        XCTAssertTrue(controller.setMuted(true))
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = false
+        hardware.defaultDeviceID = 2
+        controller.handleDefaultDeviceChange()
+        controller.refreshState()
+        XCTAssertEqual(hardware.volumes[1] ?? -1, 0.35, accuracy: 0.0001)
+    }
+
+    func testPartialVolumeProgressMustPreserveOriginalBaseline() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.volumeSnapshots[1] = [1: 0.3, 2: 0.6]
+        hardware.deferVolumeWrites = true
+        let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        XCTAssertTrue(controller.setMuted(true))
+        hardware.volumeSnapshots[1] = [1: 0, 2: 0.6]
+        controller.refreshState()
+        hardware.completeDeferredWrites()
+        hardware.deferVolumeWrites = false
+        controller.refreshState()
+        XCTAssertTrue(controller.setMuted(false))
+        XCTAssertEqual(hardware.volumeSnapshots[1], [1: 0.3, 2: 0.6])
+    }
+
+    func testRejectedReversalOfDeferredHoldIsRetriedEvenBeforeReadbackChanges() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = true
+        hardware.deferMuteWrites = true
+        let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: controller, playsFeedback: false,
+            observesWake: false, initialMode: .pushToUnmute
+        )
+        gesture.beginHold()
+        hardware.muteWritesSucceed = false
+        gesture.handleUp()
+        controller.refreshState()
+        hardware.muteWritesSucceed = true
+        controller.refreshState()
+        hardware.completeDeferredWrites()
+        hardware.deferMuteWrites = false
+        controller.refreshState()
+        XCTAssertEqual(controller.state, .muted)
+        XCTAssertEqual(hardware.setMuteCalls.last?.muted, true)
+    }
+
+    func testDeferredFallbackMuteIsSupersededByHoldRelease() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.volumes[1] = 0.42
+        hardware.deferVolumeWrites = true
+        let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = PushToTalkController(
+            micController: controller, playsFeedback: false,
+            observesWake: false, initialMode: .pushToMute
+        )
+        gesture.beginHold()
+        gesture.handleUp()
+        hardware.completeDeferredWrites()
+        hardware.deferVolumeWrites = false
+        controller.refreshState()
+        XCTAssertEqual(controller.state, .unmuted)
+        XCTAssertEqual(hardware.volumes[1] ?? -1, 0.42, accuracy: 0.0001)
+    }
+
+    func testDepartingRestoreClearsNativeMuteAndFallbackVolumeTogether() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.volumes[1] = 0.35
+        hardware.volumes[2] = 0.6
+        let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        XCTAssertTrue(controller.setMuted(true))
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = true
+        hardware.defaultDeviceID = 2
+        controller.handleDefaultDeviceChange()
+        XCTAssertEqual(hardware.mutes[1], false)
+        XCTAssertEqual(hardware.volumes[1] ?? -1, 0.35, accuracy: 0.0001)
+    }
+
 }

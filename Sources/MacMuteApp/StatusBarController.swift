@@ -20,6 +20,7 @@ final class StatusBarController {
     private var preferencesWindowController: PreferencesWindowController?
     private var pushToMuteItem: NSMenuItem?
     private var pushToUnmuteItem: NSMenuItem?
+    private var toggleModeItem: NSMenuItem?
     private var statusMenu: NSMenu?
     private var microphoneStateItem: NSMenuItem?
     private var hotkeyStateItem: NSMenuItem?
@@ -87,6 +88,11 @@ final class StatusBarController {
         menu.addItem(pushToUnmuteItem)
         self.pushToUnmuteItem = pushToUnmuteItem
 
+        let toggleModeItem = NSMenuItem(title: "Toggle", action: #selector(selectToggleMode), keyEquivalent: "")
+        toggleModeItem.target = self
+        menu.addItem(toggleModeItem)
+        self.toggleModeItem = toggleModeItem
+
         updateModeMenuItemStates()
 
         menu.addItem(NSMenuItem.separator())
@@ -129,9 +135,14 @@ final class StatusBarController {
         pushToTalk.setMode(.pushToUnmute)
     }
 
+    @objc private func selectToggleMode() {
+        pushToTalk.setMode(.toggle)
+    }
+
     private func updateModeMenuItemStates() {
         pushToMuteItem?.state = pushToTalk.mode == .pushToMute ? .on : .off
         pushToUnmuteItem?.state = pushToTalk.mode == .pushToUnmute ? .on : .off
+        toggleModeItem?.state = pushToTalk.mode == .toggle ? .on : .off
     }
 
     private func showModeChange(_ mode: HotkeyMode) {
@@ -188,6 +199,11 @@ final class StatusBarController {
 
     static func modePresentation(for mode: HotkeyMode) -> ModePresentation {
         switch mode {
+        case .toggle:
+            ModePresentation(
+                symbol: "arrow.triangle.2.circlepath",
+                accessibilityDescription: "Hotkey mode changed to Toggle"
+            )
         case .pushToMute:
             ModePresentation(
                 symbol: "mic.slash.circle.fill",

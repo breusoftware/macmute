@@ -449,6 +449,7 @@ final class MicMuteController {
     private var savedVolumes: [String: InputVolumeSnapshot]
     private var appMutedDeviceIdentifiers: Set<String>
     private var pendingDesiredStates: [String: Bool]
+    private var pendingForcedWrites: Set<String> = []
     private var knownDeviceIDs: [String: AudioDeviceID] = [:]
     private var cachedDeviceIdentifiers: [AudioDeviceID: String] = [:]
     private var pendingDesiredStateAcrossUnavailableDevice: Bool?
@@ -527,14 +528,21 @@ final class MicMuteController {
             return false
         }
 
+        if pendingDesiredStates[identity.key].map({ $0 != muted }) == true {
+            // Supersede an accepted write even if its effect has not reached readback yet.
+            pendingForcedWrites.insert(identity.key)
+        }
         setPendingDesiredState(muted, for: identity)
-        let accepted = applyMute(muted, to: identity)
+        let accepted = applyMute(muted, to: identity, forceWrite: pendingForcedWrites.contains(identity.key))
         guard identityStillMatches(identity) else {
             publish(.unavailable)
             return false
         }
         let actual = Self.readState(on: deviceID, using: hardware)
-        confirm(actual, desired: muted, identity: identity)
+        if accepted {
+            pendingForcedWrites.remove(identity.key)
+            confirm(actual, desired: muted, identity: identity)
+        }
         if !accepted, !retryOnFailure {
             clearPendingDesiredState(forIdentifier: identity.key)
         }
@@ -649,17 +657,17 @@ final class MicMuteController {
         }
     }
 
-    private func applyMute(_ muted: Bool, to identity: DeviceIdentity) -> Bool {
+    private func applyMute(_ muted: Bool, to identity: DeviceIdentity, forceWrite: Bool = false) -> Bool {
         guard identityStillMatches(identity) else { return false }
         let deviceID = identity.deviceID
         let hasNativeMute = hardware.hasMuteProperty(on: deviceID)
         let nativeMuteIsSettable = hasNativeMute && hardware.isMuteSettable(on: deviceID)
         if nativeMuteIsSettable {
             guard let current = hardware.readMute(on: deviceID) else { return false }
-            if current == muted, muted {
+            if current == muted, muted, !forceWrite {
                 return true
             }
-            if current != muted {
+            if current != muted || forceWrite {
                 let alreadyOwned = ownsMute(identity)
                 if muted { addAppMuteOwnership(identity) }
                 guard identityStillMatches(identity), hardware.setMute(muted, on: deviceID) else {
@@ -667,17 +675,17 @@ final class MicMuteController {
                     return false
                 }
                 guard identityStillMatches(identity) else { return false }
-                return true
+                if muted { return true }
             }
-            if let volumes = hardware.readVolumes(on: deviceID), Self.volumesAreMuted(volumes) {
+            if let volumes = hardware.readVolumes(on: deviceID),
+               Self.volumesAreMuted(volumes) || (forceWrite && savedVolumes[identity.key] != nil) {
                 // Continue so an explicit unmute also restores a fallback-zeroed volume.
             } else {
-                removeAppMuteOwnership(identity)
                 return true
             }
         }
 
-        if hasNativeMute {
+        if hasNativeMute, !nativeMuteIsSettable {
             guard let nativeMuted = hardware.readMute(on: deviceID) else { return false }
             if nativeMuted {
                 return muted
@@ -690,11 +698,14 @@ final class MicMuteController {
         else { return false }
 
         if muted {
-            if Self.volumesAreMuted(currentVolumes) {
+            if Self.volumesAreMuted(currentVolumes), !forceWrite {
                 return true
             }
-            savedVolumes[identity.key] = currentVolumes
-            persistSavedVolumes()
+            // A retry may observe only some channels at zero. Keep the original baseline.
+            if !ownsMute(identity) || savedVolumes[identity.key] == nil {
+                savedVolumes[identity.key] = currentVolumes
+                persistSavedVolumes()
+            }
             let mutedVolumes = currentVolumes.mapValues { _ in Float32(0) }
             let alreadyOwned = ownsMute(identity)
             addAppMuteOwnership(identity)
@@ -706,8 +717,7 @@ final class MicMuteController {
             return true
         }
 
-        if !Self.volumesAreMuted(currentVolumes) {
-            removeAppMuteOwnership(identity)
+        if !Self.volumesAreMuted(currentVolumes), !forceWrite {
             return true
         }
         let restoredVolumes = restorationVolumes(
@@ -724,29 +734,8 @@ final class MicMuteController {
     private func restoreAppOwnedMute(_ identity: DeviceIdentity) -> Bool {
         guard identityStillMatches(identity) else { return false }
         let deviceID = identity.deviceID
-        let restored: Bool
-        let hasNativeMute = hardware.hasMuteProperty(on: deviceID)
-        if hasNativeMute,
-           hardware.isMuteSettable(on: deviceID),
-           let currentlyMuted = hardware.readMute(on: deviceID) {
-            restored = !currentlyMuted || hardware.setMute(false, on: deviceID)
-        } else if hardware.isVolumeSettable(on: deviceID) {
-            if hasNativeMute, hardware.readMute(on: deviceID) != false {
-                return false
-            }
-            guard let currentVolumes = hardware.readVolumes(on: deviceID), !currentVolumes.isEmpty else {
-                return false
-            }
-            let volumes = restorationVolumes(saved: savedVolumes[identity.key], current: currentVolumes)
-            restored = !Self.volumesAreMuted(currentVolumes)
-                || hardware.setVolumes(volumes, on: deviceID)
-            if restored {
-                savedVolumes[identity.key] = volumes
-                persistSavedVolumes()
-            }
-        } else {
-            restored = false
-        }
+        // Restore both native mute and any fallback volume this app changed.
+        let restored = applyMute(false, to: identity)
         if restored, identityStillMatches(identity), Self.readState(on: deviceID, using: hardware) == .unmuted {
             removeAppMuteOwnership(identity)
         }
@@ -797,8 +786,9 @@ final class MicMuteController {
             return (identity, desired)
         }
         for (identity, desired) in pending {
-            let accepted = applyMute(desired, to: identity)
+            let accepted = applyMute(desired, to: identity, forceWrite: pendingForcedWrites.contains(identity.key))
             if accepted, identityStillMatches(identity) {
+                pendingForcedWrites.remove(identity.key)
                 confirm(Self.readState(on: identity.deviceID, using: hardware), desired: desired, identity: identity)
             }
         }
@@ -898,7 +888,7 @@ final class MicMuteController {
         desired: Bool,
         identity: DeviceIdentity
     ) {
-        guard actual.mutedValue == desired else { return }
+        guard !pendingForcedWrites.contains(identity.key), actual.mutedValue == desired else { return }
         clearPendingDesiredState(forIdentifier: identity.key)
         if !desired {
             removeAppMuteOwnership(identity)
@@ -925,6 +915,9 @@ final class MicMuteController {
         }
         if let desired = pendingDesiredStates.removeValue(forKey: sessionKey) {
             pendingDesiredStates[persistentKey] = desired
+        }
+        if pendingForcedWrites.remove(sessionKey) != nil {
+            pendingForcedWrites.insert(persistentKey)
         }
         knownDeviceIDs.removeValue(forKey: sessionKey)
         persistSavedVolumes()
@@ -955,6 +948,7 @@ final class MicMuteController {
         guard let identifier,
               pendingDesiredStates.removeValue(forKey: identifier) != nil
         else { return }
+        pendingForcedWrites.remove(identifier)
         persistPendingDesiredStates()
     }
 

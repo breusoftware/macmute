@@ -49,7 +49,7 @@ private struct PreferencesView: View {
             }
 
             HStack {
-                Text("Toggle Mute Shortcut:")
+                Text("Hotkey Shortcut:")
                 Spacer()
                 Button(isRecording ? "Press keys…" : model.shortcutDisplay) {
                     startRecording()

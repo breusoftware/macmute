@@ -4,11 +4,13 @@ import Foundation
 enum HotkeyMode: String {
     case pushToMute
     case pushToUnmute
+    case toggle
 
     var displayName: String {
         switch self {
         case .pushToMute: "Push to Mute"
         case .pushToUnmute: "Push to Unmute"
+        case .toggle: "Toggle"
         }
     }
 
@@ -36,6 +38,7 @@ final class PushToTalkController {
     private var holdTimer: Timer?
     private var pendingTapTimer: Timer?
     private var tapCount = 0
+    private var toggleKeyIsDown = false
     private var isHoldActive = false
     private var holdAttemptFailed = false
     private var micStateBeforeHold: Bool?
@@ -64,6 +67,12 @@ final class PushToTalkController {
     }
 
     func handleDown() {
+        if mode == .toggle {
+            guard !toggleKeyIsDown else { return }
+            toggleKeyIsDown = true
+            _ = applyModeAction()
+            return
+        }
         guard holdTimer == nil, !isHoldActive else { return }
         holdAttemptFailed = false
         let timer = Timer(timeInterval: holdThreshold, repeats: false) { [weak self] _ in
@@ -76,6 +85,10 @@ final class PushToTalkController {
     }
 
     func handleUp() {
+        if mode == .toggle {
+            toggleKeyIsDown = false
+            return
+        }
         holdTimer?.invalidate()
         holdTimer = nil
 
@@ -91,6 +104,7 @@ final class PushToTalkController {
     }
 
     func beginHold() {
+        guard mode != .toggle else { return }
         holdTimer?.invalidate()
         holdTimer = nil
         pendingTapTimer?.invalidate()
@@ -142,7 +156,9 @@ final class PushToTalkController {
             }
         }
         clearGestureState()
-        guard micController.setMuted(newMode.restingMutedState) else { return false }
+        if newMode != .toggle {
+            guard micController.setMuted(newMode.restingMutedState) else { return false }
+        }
         mode = newMode
         Self.saveMode(mode)
         onModeChanged?(mode)
@@ -178,7 +194,9 @@ final class PushToTalkController {
 
     @discardableResult
     private func applyModeAction() -> Bool {
-        let succeeded = micController.setMuted(mode.targetMutedState)
+        let succeeded = mode == .toggle
+            ? micController.toggle()
+            : micController.setMuted(mode.targetMutedState)
         if succeeded, playsFeedback {
             ClickSoundPlayer.shared.play()
         }
@@ -198,6 +216,7 @@ final class PushToTalkController {
     }
 
     private func clearGestureState() {
+        toggleKeyIsDown = false
         holdTimer?.invalidate()
         holdTimer = nil
         pendingTapTimer?.invalidate()
