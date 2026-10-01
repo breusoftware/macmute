@@ -1,43 +1,62 @@
 # MacMute
 
-A lightweight menu bar utility that mutes your Mac's current default input device at the CoreAudio hardware level. The mute applies to apps using that default device, not just one app's own mute button. An app that explicitly selects a different input device is outside MacMute's control.
+MacMute is a macOS menu bar utility that mutes the current default input device. Apps using that microphone share its mute state. An app that explicitly selects another microphone is unaffected. MacMute does not record or transmit audio.
 
-## Features
+Requires macOS 13 or later. The app has no Dock icon or main window; look for the microphone icon in the menu bar.
 
-- Menu bar icon (🎙 / 🔇) reflecting mute state
-- Explicit unavailable-state icon when CoreAudio cannot verify the microphone state
-- Global hotkey (default: ⌥⌘M, or bind the standalone `fn` key), configurable in Preferences:
-  - **Tap (shorter than the selected delay)**: toggles mute/unmute permanently on release
-  - **Hold (at least the selected delay)**: temporarily flips mute/unmute, then restores the prior state on release
-  - Each tap acts independently, including two quick taps
-- Main menu shows microphone state, hotkey status, tap/hold help, and a saved delay slider from 0.2 to 1.0 seconds in 0.2-second increments (default 0.4)
-- Launch at Login (in Preferences)
-- Tracks the default input device — if you switch microphones while muted, the new device is muted too
-- Preserves the microphone's existing state when MacMute launches
+## Using MacMute
 
-## How it works
+The default shortcut is **Option–Command–M (⌥⌘M)**.
 
-All user mute changes pass through `MicrophoneActionController`: keyboard edges and the hold timer drive one gesture state machine; the menu displays state and gesture help. One write boundary submits the desired state to `MicMuteController.setMuted`. Hardware writes, device transfers, and pending restoration retries remain owned by `MicMuteController` and its single `applyMute` implementation. No hotkey modes or double-click actions exist.
+- **Tap:** release before the selected delay to toggle mute/unmute permanently.
+- **Hold:** reach the selected delay to toggle temporarily; release to restore the previous state.
+- Two quick taps toggle twice. There are no modes or special double-click actions.
+- The main menu’s delay slider offers **0.2, 0.4, 0.6, 0.8, and 1.0 seconds**, defaulting to **0.4**. The selection is saved and applies to the next gesture.
 
-MacMute never records or transmits audio. It only flips the input device's writable `Mute` property (or, on devices without one, zeroes the writable master input volume and restores the verified per-device baseline) through CoreAudio. Every requested state change is read back before the menu bar reports success.
+The menu shows microphone state, hotkey status, gesture help, the delay slider, **Preferences…**, **MacMute Help…**, **About MacMute**, and **Quit MacMute**. All menu text uses white styling. Preferences lets you change the shortcut and enable Launch at Login. The standalone **fn** shortcut requires Accessibility access.
 
-## Xcode
+**MacMute Help…** opens the bundled [user guide](Resources/MacMuteHelp.html) offline in the system’s HTML viewer, normally a browser. This HTML file is the single source of user documentation and is included in Xcode builds and shell-built app bundles. Xcode’s generated Swift documentation is developer documentation and is separate from the user guide.
 
-Open `MacMute.xcodeproj` and select the shared **MacMute** scheme. It includes the native macOS app and `MacMuteAppTests` targets, uses the existing sources and Info.plist, and generates the app icon from `Resources/RaptorIcon.png`.
+Launching MacMute preserves the existing microphone state. If you change the default input while muted, MacMute carries the mute state to the new device. **Unavailable** means MacMute cannot verify the microphone state.
 
-Run with **Product → Run**, test with **Product → Test**, or archive the Release configuration with **Product → Archive**. Signing uses Breu Software LLC's team (`6Q66ZYGK4J`) with automatic signing and hardened runtime. For direct distribution, choose **Developer ID** in Organizer. The project is configured for direct distribution; App Store distribution would require a separate sandbox/capabilities review.
+## State-change contract
 
-The shell release pipeline below remains available for a tested, signed, notarized DMG.
+`MicrophoneActionController` owns one tap/hold gesture state machine. Keyboard edges and the timer converge on one state-write boundary, which submits the desired state to `MicMuteController.setMuted`. The menu changes the delay setting but does not change microphone state.
 
-## Build (no Xcode required)
+`MicMuteController` owns device transfers, pending state changes, and restoration retries. Hardware writes converge on its `applyMute` implementation. It uses a writable native mute property or, where necessary, zeroes input volume and restores the per-device baseline. Readback determines the displayed microphone state. An accepted write whose effect is delayed remains pending for confirmation.
 
-Requires Xcode Command Line Tools (`xcode-select --install`) and macOS 13+.
+Regression coverage includes the single-write-boundary source contract, tap/hold timing, duplicate events, cancellation, delayed readback, restoration, and device identity handling.
+
+## Build and run with Xcode
+
+Open `MacMute.xcodeproj` and select the shared **MacMute** scheme:
+
+- **Product → Run** builds and launches the app.
+- **Product → Test** runs the native test target.
+- **Product → Archive** creates an archive for distribution.
+
+The app target uses macOS 13.0, automatic signing with Breu Software LLC’s team (`6Q66ZYGK4J`), hardened runtime, and the Utilities category. Debug and Release use `Resources/MacMute.entitlements`, enabling App Sandbox and Core Audio input access. Xcode copies `MacMuteHelp.html` into the app’s resources and generates the icon from `Resources/RaptorIcon.png`.
+
+For App Store distribution, use the App Store distribution workflow in Organizer. An entitlement configuration or successful local build does not establish upload acceptance or sandboxed runtime behavior. See [publication checks](PUBLICATION.md).
+
+## Shell builds and direct distribution
+
+Install Xcode Command Line Tools with `xcode-select --install` if needed.
 
 ```sh
 ./Scripts/build_app.sh
+open MacMute.app
 ```
 
-This builds a universal Apple Silicon and Intel release binary, assembles `MacMute.app`, ad-hoc signs it for local development, and verifies the resulting bundle. It does not modify the microphone merely by building or launching the app.
+The script builds a universal Apple Silicon/Intel release executable, assembles the app and help resource, and signs it ad hoc for local development. It does not apply the Xcode target’s sandbox entitlements. Building or launching does not itself toggle the microphone.
+
+To create a local installation disk image:
+
+```sh
+./Scripts/build_dmg.sh
+```
+
+Open `MacMute-<version>.dmg` and drag MacMute into Applications. A stable installation location is recommended for Launch at Login.
 
 Run the regression suite with:
 
@@ -45,31 +64,23 @@ Run the regression suite with:
 swift test
 ```
 
-## Install
+For strict concurrency and release coverage validation:
 
 ```sh
-./Scripts/build_dmg.sh
+swift test --enable-code-coverage \
+  -Xswiftc -strict-concurrency=complete \
+  -Xswiftc -warn-concurrency \
+  -Xswiftc -warnings-as-errors
+swift Scripts/check_coverage.swift "$(swift test --show-codecov-path)" 45.0
 ```
 
-Builds the app and packages it into `MacMute-<version>.dmg` — a disk image containing `MacMute.app` and an `Applications` shortcut, so you open it and drag the app in like any other Mac app. Installing to `/Applications` this way (rather than running the app from wherever it was built) matters for Launch at Login: macOS's `SMAppService` registers login items by the app's installed location, so it works most reliably once the app lives somewhere stable like `/Applications`.
+The coverage script also enforces per-file floors for critical components.
 
-## Run
+## Developer ID release packaging
 
-```sh
-open MacMute.app
-```
+The shell release pipeline is for direct distribution, using a Breu Software LLC **Developer ID Application** certificate and Apple notarization. It does not create an App Store submission.
 
-The app has no Dock icon or main window — look for the mic icon in the menu bar.
-
-- **Click** the menu bar icon: opens the dropdown (microphone state, hotkey status, tap/hold help, Preferences…, About, Quit)
-- **Preferences…**: change the global hotkey or enable Launch at Login
-- **About**: version and credits
-
-## BreuSoftware LLC Release Signing
-
-Local builds intentionally use ad-hoc signing. Public releases must use BreuSoftware LLC's Apple-issued **Developer ID Application** certificate plus Apple's notarization service. The release scripts refuse to create a release DMG with an ad-hoc, self-signed, or differently named identity.
-
-First save App Store Connect notarization credentials in Keychain using `xcrun notarytool store-credentials`. Then supply the exact Keychain identity and saved profile:
+Store notarization credentials in Keychain with `xcrun notarytool store-credentials`, then supply the exact signing identity and saved profile:
 
 ```sh
 export MACMUTE_RELEASE=1
@@ -78,11 +89,8 @@ export MACMUTE_NOTARY_PROFILE='breusoftware-notary'
 ./Scripts/build_dmg.sh
 ```
 
-The repository pins BreuSoftware LLC's Apple Team ID in `Resources/BreuSoftwareTeamID.txt`. Replace the example profile name above if your saved Keychain profile uses a different name. Release mode requires pristine tracked and untracked release inputs, runs the strict test suite with aggregate and critical-file coverage floors, builds and verifies a universal Apple Silicon/Intel executable, embeds the source revision, applies the hardened runtime and secure timestamp, verifies the signed app against the pinned Team ID and Apple trust assessment, mounts and inspects the DMG before and after notarization, and only then publishes the app and DMG together. `MACMUTE_TEAM_ID` is optional; if supplied by CI it must match the pinned value. Never create or globally trust a self-signed certificate for a public release.
+The profile name is an example; use the one saved in your Keychain. `Resources/BreuSoftwareTeamID.txt` pins the team. If supplied, `MACMUTE_TEAM_ID` must match it.
 
-## Notes
+Release mode requires clean release inputs, runs strict tests and coverage checks, builds universal output, embeds the source revision, and verifies signing. The DMG pipeline submits for notarization, staples and validates the result, inspects the mounted installer, and performs Gatekeeper assessment before replacing local output artifacts. It does not upload a public download or publish an App Store listing.
 
-- On first launch, macOS may prompt for microphone-related permission when CoreAudio enumerates input devices. MacMute never opens an audio input stream.
-- To change the hotkey: open Preferences, click the shortcut button, then press your desired key combination (must include a modifier, or press `fn` alone).
-- Binding `fn` requires granting MacMute Accessibility permission (System Settings → Privacy & Security → Accessibility) — macOS will prompt for this the first time.
-- If your menu bar already has other mic/audio-related icons (system input indicator, call-app mute buttons, etc.), MacMute's plain mic icon can be easy to miss at a glance — check for it near other third-party menu bar icons, not just the system clock cluster.
+See [publication checks](PUBLICATION.md) for completed implementation and remaining verification.

@@ -38,6 +38,7 @@ final class StatusBarController {
 
     private func configureMenu() {
         let menu = NSMenu()
+        menu.autoenablesItems = false
         menu.appearance = NSAppearance(named: .darkAqua)
 
         microphoneStateLabel = addInformation("Microphone State: Checking…", to: menu)
@@ -85,6 +86,12 @@ final class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        let helpItem = NSMenuItem(title: "MacMute Help…", action: #selector(openHelp), keyEquivalent: "")
+        helpItem.target = self
+        menu.addItem(helpItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let aboutItem = NSMenuItem(title: "About MacMute", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
@@ -96,6 +103,7 @@ final class StatusBarController {
         menu.addItem(quitItem)
 
         for item in menu.items where !item.isSeparatorItem && item.view == nil {
+            item.isEnabled = true
             item.attributedTitle = NSAttributedString(
                 string: item.title,
                 attributes: [.foregroundColor: NSColor.white, .font: NSFont.menuFont(ofSize: 0)]
@@ -149,6 +157,18 @@ final class StatusBarController {
             preferencesWindowController = PreferencesWindowController()
         }
         preferencesWindowController?.show()
+    }
+
+    @objc private func openHelp() {
+        guard let url = Bundle.main.url(forResource: "MacMuteHelp", withExtension: "html"),
+              NSWorkspace.shared.open(url) else {
+            let alert = NSAlert()
+            alert.messageText = "MacMute Help could not be opened"
+            alert.informativeText = "The bundled user guide is unavailable or no app can open HTML files."
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
     }
 
     @objc private func showAbout() {

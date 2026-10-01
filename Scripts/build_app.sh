@@ -107,6 +107,7 @@ mkdir -p "${TEMP_APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_DIR}/${EXECUTABLE_NAME}" "${TEMP_APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 lipo "${TEMP_APP_BUNDLE}/Contents/MacOS/${APP_NAME}" -verify_arch arm64 x86_64
 
+cp Resources/MacMuteHelp.html "${TEMP_APP_BUNDLE}/Contents/Resources/MacMuteHelp.html"
 cp Resources/Info.plist "${TEMP_APP_BUNDLE}/Contents/Info.plist"
 cp Resources/RaptorIcon.png "${TEMP_APP_BUNDLE}/Contents/Resources/RaptorIcon.png"
 SOURCE_REVISION=$(git rev-parse --verify HEAD 2>/dev/null || echo development)
