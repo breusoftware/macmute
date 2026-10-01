@@ -102,7 +102,6 @@ final class HotkeyManager {
     var onHotkeyDown: (() -> Void)?
     var onHotkeyUp: (() -> Void)?
     var onHotkeyCancelled: (() -> Void)?
-    var onRegistrationError: ((HotkeyRegistrationError) -> Void)?
     private(set) var lastRegistrationError: HotkeyRegistrationError?
 
     private enum Registration {
@@ -116,7 +115,6 @@ final class HotkeyManager {
     private let hotKeySignature = OSType(0x4D4D5554) // 'MMUT'
     private var nextHotKeyID: UInt32 = 1
     private var activeCarbonHotKeyID: UInt32?
-    private var fnKeyIsDown = false
     private var hotkeyIsDown = false
     private var registrationRetryTimer: Timer?
     private var eventHandlerAvailable = false
@@ -231,9 +229,9 @@ final class HotkeyManager {
 
                 MainActor.assumeIsolated {
                     if GetEventKind(eventRef) == UInt32(kEventHotKeyPressed) {
-                        manager.handleCarbonHotkeyEdge(isDown: true)
+                        manager.handleHotkeyEdge(isDown: true)
                     } else {
-                        manager.handleCarbonHotkeyEdge(isDown: false)
+                        manager.handleHotkeyEdge(isDown: false)
                     }
                 }
                 return noErr
@@ -298,7 +296,6 @@ final class HotkeyManager {
         guard Self.hasAccessibilityPermission(prompt: promptForPermission) else {
             return .failure(.accessibilityPermissionRequired)
         }
-        fnKeyIsDown = false
         guard let global = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: { [weak self] event in
             Task { @MainActor [weak self] in
                 self?.handleFnFlagsChanged(event)
@@ -347,17 +344,10 @@ final class HotkeyManager {
 
     private func handleFnFlagsChanged(_ event: NSEvent) {
         let isDown = event.modifierFlags.contains(.function)
-        guard isDown != fnKeyIsDown else { return }
-        fnKeyIsDown = isDown
-        hotkeyIsDown = isDown
-        if isDown {
-            onHotkeyDown?()
-        } else {
-            onHotkeyUp?()
-        }
+        handleHotkeyEdge(isDown: isDown)
     }
 
-    func handleCarbonHotkeyEdge(isDown: Bool) {
+    func handleHotkeyEdge(isDown: Bool) {
         guard isDown != hotkeyIsDown else { return }
         hotkeyIsDown = isDown
         if isDown {
@@ -398,16 +388,14 @@ final class HotkeyManager {
     }
 
     private func cancelActivePress() {
-        guard hotkeyIsDown || fnKeyIsDown else { return }
+        guard hotkeyIsDown else { return }
         hotkeyIsDown = false
-        fnKeyIsDown = false
         onHotkeyCancelled?()
     }
 
     private func recordRegistrationError(_ error: HotkeyRegistrationError) {
         lastRegistrationError = error
         NSLog("MacMute: %@", error.localizedDescription)
-        onRegistrationError?(error)
         NotificationCenter.default.post(name: .macMuteHotkeyRegistrationDidChange, object: nil)
     }
 

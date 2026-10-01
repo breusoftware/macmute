@@ -9,37 +9,19 @@ final class StatusBarController {
         let menuTitle: String
     }
 
-    struct ModePresentation: Equatable {
-        let symbol: String
-        let accessibilityDescription: String
-    }
-
     private let statusItem: NSStatusItem
     private let muteController = MicMuteController.shared
-    private let pushToTalk = PushToTalkController.shared
     private var preferencesWindowController: PreferencesWindowController?
-    private var pushToMuteItem: NSMenuItem?
-    private var pushToUnmuteItem: NSMenuItem?
-    private var toggleModeItem: NSMenuItem?
-    private var statusMenu: NSMenu?
-    private var microphoneStateItem: NSMenuItem?
-    private var hotkeyStateItem: NSMenuItem?
-    private var modeIndicatorTimer: Timer?
+    private var microphoneStateLabel: NSTextField?
+    private var hotkeyStateLabel: NSTextField?
+    private var delayLabel: NSTextField?
 
-    private let unmutedSymbol = "mic.fill"
-    private let mutedSymbol = "mic.slash.fill"
-    private let unavailableSymbol = "exclamationmark.triangle.fill"
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        configureButton()
         configureMenu()
         muteController.onStateChanged = { [weak self] state in
             self?.updateMicrophoneState(state)
-        }
-        pushToTalk.onModeChanged = { [weak self] mode in
-            self?.updateModeMenuItemStates()
-            self?.showModeChange(mode)
         }
         NotificationCenter.default.addObserver(
             forName: .macMuteHotkeyRegistrationDidChange,
@@ -54,53 +36,47 @@ final class StatusBarController {
         updateHotkeyState()
     }
 
-    private func configureButton() {
-        guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: unmutedSymbol, accessibilityDescription: "Microphone")
-    }
-
     private func configureMenu() {
         let menu = NSMenu()
+        menu.appearance = NSAppearance(named: .darkAqua)
 
-        let microphoneStateItem = NSMenuItem(title: "Microphone State: Checking…", action: nil, keyEquivalent: "")
-        microphoneStateItem.isEnabled = false
-        menu.addItem(microphoneStateItem)
-        self.microphoneStateItem = microphoneStateItem
-
-        let hotkeyStateItem = NSMenuItem(title: "Hotkey: Active", action: nil, keyEquivalent: "")
-        hotkeyStateItem.isEnabled = false
-        menu.addItem(hotkeyStateItem)
-        self.hotkeyStateItem = hotkeyStateItem
+        microphoneStateLabel = addInformation("Microphone State: Checking…", to: menu)
+        hotkeyStateLabel = addInformation("Hotkey: Active", to: menu)
 
         menu.addItem(NSMenuItem.separator())
 
-        let modeHeader = NSMenuItem(title: "Hotkey Mode", action: nil, keyEquivalent: "")
-        modeHeader.isEnabled = false
-        menu.addItem(modeHeader)
-
-        let pushToMuteItem = NSMenuItem(title: "Push to Mute", action: #selector(selectPushToMute), keyEquivalent: "")
-        pushToMuteItem.target = self
-        menu.addItem(pushToMuteItem)
-        self.pushToMuteItem = pushToMuteItem
-
-        let pushToUnmuteItem = NSMenuItem(title: "Push to Unmute", action: #selector(selectPushToUnmute), keyEquivalent: "")
-        pushToUnmuteItem.target = self
-        menu.addItem(pushToUnmuteItem)
-        self.pushToUnmuteItem = pushToUnmuteItem
-
-        let toggleModeItem = NSMenuItem(title: "Toggle", action: #selector(selectToggleMode), keyEquivalent: "")
-        toggleModeItem.target = self
-        menu.addItem(toggleModeItem)
-        self.toggleModeItem = toggleModeItem
-
-        updateModeMenuItemStates()
+        for title in [
+            "Tap shortcut: switch mute/unmute permanently",
+            "Hold shortcut: switch temporarily",
+            "Release hold: restore previous state"
+        ] {
+            addInformation(title, to: menu)
+        }
 
         menu.addItem(NSMenuItem.separator())
 
-        let toggleItem = NSMenuItem(title: "Toggle Mute", action: #selector(toggleMute), keyEquivalent: "")
-        toggleItem.target = self
-        menu.addItem(toggleItem)
+        let delayItem = NSMenuItem()
+        let delayView = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 66))
+        let label = makeLabel("")
+        label.frame = NSRect(x: 20, y: 39, width: 300, height: 20)
+        delayView.addSubview(label)
+        delayLabel = label
 
+        let slider = NSSlider(
+            value: MicrophoneActionController.shared.holdThreshold,
+            minValue: 0.2, maxValue: 1.0,
+            target: self, action: #selector(changeHoldDelay(_:))
+        )
+        slider.frame = NSRect(x: 20, y: 10, width: 300, height: 24)
+        slider.isContinuous = true
+        slider.numberOfTickMarks = 5
+        slider.allowsTickMarkValuesOnly = true
+        slider.setAccessibilityLabel("Tap to hold delay in seconds")
+        slider.toolTip = "0.2 to 1.0 seconds. Shorter presses toggle permanently."
+        delayView.addSubview(slider)
+        delayItem.view = delayView
+        menu.addItem(delayItem)
+        updateDelayLabel()
         menu.addItem(NSMenuItem.separator())
 
         let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(openPreferences), keyEquivalent: ",")
@@ -119,49 +95,53 @@ final class StatusBarController {
         quitItem.target = self
         menu.addItem(quitItem)
 
-        statusItem.menu = menu
-        self.statusMenu = menu
-    }
-
-    @objc private func toggleMute() {
-        muteController.toggle()
-    }
-
-    @objc private func selectPushToMute() {
-        pushToTalk.setMode(.pushToMute)
-    }
-
-    @objc private func selectPushToUnmute() {
-        pushToTalk.setMode(.pushToUnmute)
-    }
-
-    @objc private func selectToggleMode() {
-        pushToTalk.setMode(.toggle)
-    }
-
-    private func updateModeMenuItemStates() {
-        pushToMuteItem?.state = pushToTalk.mode == .pushToMute ? .on : .off
-        pushToUnmuteItem?.state = pushToTalk.mode == .pushToUnmute ? .on : .off
-        toggleModeItem?.state = pushToTalk.mode == .toggle ? .on : .off
-    }
-
-    private func showModeChange(_ mode: HotkeyMode) {
-        modeIndicatorTimer?.invalidate()
-        let presentation = Self.modePresentation(for: mode)
-        statusItem.button?.image = NSImage(
-            systemSymbolName: presentation.symbol,
-            accessibilityDescription: presentation.accessibilityDescription
-        )
-
-        let timer = Timer(timeInterval: 1.25, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.modeIndicatorTimer = nil
-                self.updateMicrophoneState(self.muteController.state)
-            }
+        for item in menu.items where !item.isSeparatorItem && item.view == nil {
+            item.attributedTitle = NSAttributedString(
+                string: item.title,
+                attributes: [.foregroundColor: NSColor.white, .font: NSFont.menuFont(ofSize: 0)]
+            )
         }
-        RunLoop.main.add(timer, forMode: .common)
-        modeIndicatorTimer = timer
+
+        statusItem.menu = menu
+    }
+
+    private func makeLabel(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.textColor = .white
+        label.font = .menuFont(ofSize: 0)
+        return label
+    }
+
+    @discardableResult
+    private func addInformation(_ title: String, to menu: NSMenu) -> NSTextField {
+        let label = makeLabel(title)
+        let item = NSMenuItem()
+        let view = NSView()
+        view.addSubview(label)
+        item.view = view
+        menu.addItem(item)
+        updateInformation(label, title: title)
+        return label
+    }
+
+    private func updateInformation(_ label: NSTextField?, title: String) {
+        guard let label else { return }
+        label.stringValue = title
+        label.sizeToFit()
+        label.frame.origin = NSPoint(x: 20, y: 4)
+        label.superview?.setFrameSize(NSSize(width: label.frame.width + 40, height: label.frame.height + 8))
+    }
+
+    @objc private func changeHoldDelay(_ slider: NSSlider) {
+        MicrophoneActionController.shared.setHoldThreshold(slider.doubleValue)
+        updateDelayLabel()
+    }
+
+    private func updateDelayLabel() {
+        delayLabel?.stringValue = String(
+            format: "Tap–hold delay: %.1f seconds (0.2–1.0)",
+            MicrophoneActionController.shared.holdThreshold
+        )
     }
 
     @objc private func openPreferences() {
@@ -188,33 +168,11 @@ final class StatusBarController {
 
     private func updateMicrophoneState(_ state: MicrophoneState) {
         let presentation = Self.presentation(for: state)
-        if modeIndicatorTimer == nil {
-            statusItem.button?.image = NSImage(
-                systemSymbolName: presentation.symbol,
-                accessibilityDescription: presentation.accessibilityDescription
-            )
-        }
-        microphoneStateItem?.title = presentation.menuTitle
-    }
-
-    static func modePresentation(for mode: HotkeyMode) -> ModePresentation {
-        switch mode {
-        case .toggle:
-            ModePresentation(
-                symbol: "arrow.triangle.2.circlepath",
-                accessibilityDescription: "Hotkey mode changed to Toggle"
-            )
-        case .pushToMute:
-            ModePresentation(
-                symbol: "mic.slash.circle.fill",
-                accessibilityDescription: "Hotkey mode changed to Push to Mute"
-            )
-        case .pushToUnmute:
-            ModePresentation(
-                symbol: "mic.circle.fill",
-                accessibilityDescription: "Hotkey mode changed to Push to Unmute"
-            )
-        }
+        statusItem.button?.image = NSImage(
+            systemSymbolName: presentation.symbol,
+            accessibilityDescription: presentation.accessibilityDescription
+        )
+        updateInformation(microphoneStateLabel, title: presentation.menuTitle)
     }
 
     static func presentation(for state: MicrophoneState) -> MicrophonePresentation {
@@ -241,10 +199,10 @@ final class StatusBarController {
     }
 
     private func updateHotkeyState() {
-        hotkeyStateItem?.title = Self.hotkeyTitle(
+        updateInformation(hotkeyStateLabel, title: Self.hotkeyTitle(
             error: HotkeyManager.shared.lastRegistrationError,
             isActive: HotkeyManager.shared.hasActiveRegistration
-        )
+        ))
     }
 
     static func hotkeyTitle(error: HotkeyRegistrationError?, isActive: Bool) -> String {

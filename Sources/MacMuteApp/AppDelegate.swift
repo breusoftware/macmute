@@ -10,10 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusBarController = StatusBarController()
 
-        _ = PushToTalkController.shared
+        _ = MicrophoneActionController.shared
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        PushToTalkController.shared.prepareForTermination()
+        MicrophoneActionController.shared.prepareForTermination()
     }
 }

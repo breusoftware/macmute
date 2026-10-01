@@ -10,7 +10,7 @@ let criticalFileFloors: [String: Double] = [
     "MicMuteController.swift": 55,
     "HotkeyManager.swift": 50,
     "LaunchAtLoginManager.swift": 70,
-    "PushToTalkController.swift": 65,
+    "MicrophoneActionController.swift": 65,
     "ClickSoundPlayer.swift": 30,
     "PreferencesWindow.swift": 10,
     "StatusBarController.swift": 14,

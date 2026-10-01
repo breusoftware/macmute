@@ -507,15 +507,6 @@ final class MicMuteController {
     }
 
     @discardableResult
-    func toggle() -> Bool {
-        refreshState()
-        guard let muted = state.mutedValue else {
-            return false
-        }
-        return setMuted(!muted)
-    }
-
-    @discardableResult
     func setMuted(_ muted: Bool, retryOnFailure: Bool = false) -> Bool {
         reconcileCurrentDeviceIfNeeded()
         guard let deviceID = currentDeviceID,

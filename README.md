@@ -6,17 +6,18 @@ A lightweight menu bar utility that mutes your Mac's current default input devic
 
 - Menu bar icon (🎙 / 🔇) reflecting mute state
 - Explicit unavailable-state icon when CoreAudio cannot verify the microphone state
-- Global hotkey (default: ⌥⌘M, or bind the standalone `fn` key), configurable in Preferences, with selectable **Push to Mute**, **Push to Unmute**, and **Toggle** modes. In either push mode:
-  - **Tap**: performs the current mode's action and leaves it
-  - **Hold**: performs the action while held, reverts to the prior state on release
-  - **Double-click**: switches between "Push to Mute" and "Push to Unmute" mode and briefly shows the selected mode in the menu bar icon
-- **Toggle mode**: each hotkey press immediately alternates mute/unmute. Holding does not repeat or revert; two quick presses toggle twice without switching modes. Selecting Toggle preserves the current microphone state.
-- Mode can also be set directly from the menu bar dropdown
+- Global hotkey (default: ⌥⌘M, or bind the standalone `fn` key), configurable in Preferences:
+  - **Tap (shorter than the selected delay)**: toggles mute/unmute permanently on release
+  - **Hold (at least the selected delay)**: temporarily flips mute/unmute, then restores the prior state on release
+  - Each tap acts independently, including two quick taps
+- Main menu shows microphone state, hotkey status, tap/hold help, and a saved delay slider from 0.2 to 1.0 seconds in 0.2-second increments (default 0.4)
 - Launch at Login (in Preferences)
 - Tracks the default input device — if you switch microphones while muted, the new device is muted too
 - Preserves the microphone's existing state when MacMute launches
 
 ## How it works
+
+All user mute changes pass through `MicrophoneActionController`: keyboard edges and the hold timer drive one gesture state machine; the menu displays state and gesture help. One write boundary submits the desired state to `MicMuteController.setMuted`. Hardware writes, device transfers, and pending restoration retries remain owned by `MicMuteController` and its single `applyMute` implementation. No hotkey modes or double-click actions exist.
 
 MacMute never records or transmits audio. It only flips the input device's writable `Mute` property (or, on devices without one, zeroes the writable master input volume and restores the verified per-device baseline) through CoreAudio. Every requested state change is read back before the menu bar reports success.
 
@@ -60,7 +61,7 @@ open MacMute.app
 
 The app has no Dock icon or main window — look for the mic icon in the menu bar.
 
-- **Click** the menu bar icon: opens the dropdown (Hotkey Mode, Toggle Mute, Preferences…, About, Quit)
+- **Click** the menu bar icon: opens the dropdown (microphone state, hotkey status, tap/hold help, Preferences…, About, Quit)
 - **Preferences…**: change the global hotkey or enable Launch at Login
 - **About**: version and credits
 

@@ -213,19 +213,21 @@ final class MicMuteControllerTests: XCTestCase {
         XCTAssertEqual(controller.state, .muted)
     }
 
-    func testWakeDuringPushToUnmuteRestoresPriorMutedState() {
+    func testWakeDuringHoldRestoresPriorMutedState() {
         let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = true
         let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
+        var gestureTime = 0.0
+        let gestureController = MicrophoneActionController(
             micController: micController,
             playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToUnmute
+            observesWake: false, now: { gestureTime }
         )
 
-        gestureController.beginHold()
+        gestureController.handleDown()
+        gestureTime = 0.4
+        gestureController.advanceHold()
         XCTAssertEqual(micController.state, .unmuted)
 
         gestureController.handleWake()
@@ -238,14 +240,16 @@ final class MicMuteControllerTests: XCTestCase {
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = false
         let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
+        var gestureTime = 0.0
+        let gestureController = MicrophoneActionController(
             micController: micController,
             playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToMute
+            observesWake: false, now: { gestureTime }
         )
 
-        gestureController.beginHold()
+        gestureController.handleDown()
+        gestureTime = 0.4
+        gestureController.advanceHold()
         XCTAssertEqual(micController.state, .muted)
         gestureController.cancelActiveGesture()
 
@@ -258,14 +262,16 @@ final class MicMuteControllerTests: XCTestCase {
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = true
         let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
+        var gestureTime = 0.0
+        let gestureController = MicrophoneActionController(
             micController: micController,
             playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToUnmute
+            observesWake: false, now: { gestureTime }
         )
 
-        gestureController.beginHold()
+        gestureController.handleDown()
+        gestureTime = 0.4
+        gestureController.advanceHold()
         hardware.muteWritesSucceed = false
         gestureController.handleUp()
         XCTAssertEqual(micController.state, .unmuted)
@@ -330,26 +336,12 @@ final class MicMuteControllerTests: XCTestCase {
         let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
 
         hardware.mutes[1] = true
-        XCTAssertTrue(controller.toggle())
-        XCTAssertEqual(controller.state, .unmuted)
-    }
-
-    func testModeChangeRollsBackWhenRestingStateCannotBeApplied() {
-        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
-        hardware.muteProperties.insert(1)
-        hardware.mutes[1] = false
-        hardware.muteWritesSucceed = false
-        let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
-            micController: micController,
-            playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToMute
+        let actions = MicrophoneActionController(
+            micController: controller, playsFeedback: false, observesWake: false
         )
-
-        XCTAssertFalse(gestureController.setMode(.pushToUnmute))
-        XCTAssertEqual(gestureController.mode, .pushToMute)
-        XCTAssertEqual(micController.state, .unmuted)
+        actions.handleDown()
+        actions.handleUp()
+        XCTAssertEqual(controller.state, .unmuted)
     }
 
     func testPendingSafetyIntentSurvivesControllerRestartWithStableUID() {
@@ -417,14 +409,16 @@ final class MicMuteControllerTests: XCTestCase {
         hardware.mutes[1] = true
         hardware.mutes[2] = false
         let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
+        var gestureTime = 0.0
+        let gestureController = MicrophoneActionController(
             micController: micController,
             playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToUnmute
+            observesWake: false, now: { gestureTime }
         )
 
-        gestureController.beginHold()
+        gestureController.handleDown()
+        gestureTime = 0.4
+        gestureController.advanceHold()
         hardware.defaultDeviceID = nil
         gestureController.handleUp()
         XCTAssertEqual(micController.state, .unavailable)
@@ -439,15 +433,17 @@ final class MicMuteControllerTests: XCTestCase {
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = false
         let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
+        var gestureTime = 0.0
+        let gestureController = MicrophoneActionController(
             micController: micController,
             playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToUnmute
+            observesWake: false, now: { gestureTime }
         )
 
         hardware.mutes[1] = true
-        gestureController.beginHold()
+        gestureController.handleDown()
+        gestureTime = 0.4
+        gestureController.advanceHold()
         XCTAssertEqual(micController.state, .unmuted)
         gestureController.handleUp()
 
@@ -481,14 +477,16 @@ final class MicMuteControllerTests: XCTestCase {
         hardware.mutes[1] = false
         hardware.mutes[2] = false
         let micController = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gestureController = PushToTalkController(
+        var gestureTime = 0.0
+        let gestureController = MicrophoneActionController(
             micController: micController,
             playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToMute
+            observesWake: false, now: { gestureTime }
         )
 
-        gestureController.beginHold()
+        gestureController.handleDown()
+        gestureTime = 0.4
+        gestureController.advanceHold()
         hardware.muteWritesSucceed = false
         gestureController.handleUp()
         hardware.muteWritesSucceed = true
@@ -919,136 +917,169 @@ final class MicMuteControllerTests: XCTestCase {
         manager.onHotkeyUp = { ups += 1 }
         manager.onHotkeyCancelled = { cancellations += 1 }
 
-        manager.handleCarbonHotkeyEdge(isDown: true)
+        manager.handleHotkeyEdge(isDown: true)
         manager.handleWake()
-        manager.handleCarbonHotkeyEdge(isDown: true)
-        manager.handleCarbonHotkeyEdge(isDown: false)
+        manager.handleHotkeyEdge(isDown: true)
+        manager.handleHotkeyEdge(isDown: false)
 
         XCTAssertEqual(downs, 2)
         XCTAssertEqual(ups, 1)
         XCTAssertEqual(cancellations, 1)
     }
 
-    func testToggleModeAlternatesImmediatelyAndIgnoresHoldAndRepeat() {
+    func testTapAndHoldUseOneTimedGestureInBothDirections() {
+        for prior in [false, true] {
+            for duration in [0.399, 0.4, 0.8] {
+                let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+                hardware.muteProperties.insert(1)
+                hardware.mutes[1] = prior
+                let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+                var time = 0.0
+                let gesture = MicrophoneActionController(
+                    micController: mic, playsFeedback: false, observesWake: false,
+                    now: { time }
+                )
+                gesture.handleUp() // Orphan release must do nothing.
+                gesture.handleDown()
+                gesture.handleDown() // Repeat must neither write nor restart the clock.
+                XCTAssertTrue(hardware.setMuteCalls.isEmpty)
+                time = duration
+                gesture.advanceHold()
+                gesture.advanceHold()
+                if duration >= 0.4 { XCTAssertEqual(mic.state.mutedValue, !prior) }
+                gesture.handleUp()
+                gesture.handleUp()
+                XCTAssertEqual(mic.state.mutedValue, duration >= 0.4 ? prior : !prior)
+                XCTAssertEqual(hardware.setMuteCalls.map(\.muted), duration >= 0.4 ? [!prior, prior] : [!prior])
+            }
+        }
+    }
+
+    func testUserStateChangeExecutionContract() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let sources = root.appendingPathComponent("Sources/MacMuteApp")
+        for file in try FileManager.default.contentsOfDirectory(at: sources, includingPropertiesForKeys: nil)
+            where file.pathExtension == "swift" {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            if file.lastPathComponent != "MicMuteController.swift" {
+                XCTAssertFalse(source.contains("hardware.setMute("), file.lastPathComponent)
+                XCTAssertFalse(source.contains("hardware.setVolumes("), file.lastPathComponent)
+            }
+            if file.lastPathComponent != "MicrophoneActionController.swift" {
+                XCTAssertFalse(source.contains(".setMuted("), file.lastPathComponent)
+            } else {
+                XCTAssertEqual(source.components(separatedBy: ".setMuted(").count - 1, 1)
+            }
+        }
+        let menu = try String(contentsOf: sources.appendingPathComponent("StatusBarController.swift"), encoding: .utf8)
+        XCTAssertFalse(menu.contains(".handleDown("))
+        XCTAssertFalse(menu.contains(".handleUp("))
+    }
+
+    func testFailedTapDoesNotRepeatAndNextGestureCanRetry() {
         let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = false
         let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
-            micController: mic, playsFeedback: false, observesWake: false,
-            initialMode: .toggle
-        )
-
-        gesture.handleDown()
-        XCTAssertEqual(mic.state, .muted)
-        gesture.handleDown()
-        gesture.beginHold()
-        gesture.handleUp()
-        XCTAssertEqual(mic.state, .muted)
-        gesture.handleDown()
+        let actions = MicrophoneActionController(micController: mic, playsFeedback: false, observesWake: false)
+        hardware.muteWritesSucceed = false
+        actions.handleDown()
+        actions.handleUp()
         XCTAssertEqual(mic.state, .unmuted)
+        hardware.muteWritesSucceed = true
+        actions.handleUp()
+        actions.advanceHold()
+        XCTAssertEqual(mic.state, .unmuted)
+        actions.handleDown()
+        actions.handleUp()
+        XCTAssertEqual(mic.state, .muted)
+    }
+
+    func testDelayPersistsAndChangesOnlyFutureGestures() {
+        let defaults = UserDefaults(suiteName: "MacMuteDelayTests.\(UUID().uuidString)")!
+        defer { defaults.removeObject(forKey: "MacMute.tapHoldDelay") }
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = false
+        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        var time = 0.0
+        let actions = MicrophoneActionController(
+            micController: mic, playsFeedback: false, observesWake: false,
+            defaults: defaults, now: { time }
+        )
+        XCTAssertEqual(actions.holdThreshold, 0.4)
+        actions.handleDown()
+        actions.setHoldThreshold(1.0)
+        time = 0.4
+        actions.advanceHold()
+        XCTAssertEqual(mic.state, .muted)
+        actions.handleUp()
+        XCTAssertEqual(mic.state, .unmuted)
+        actions.handleDown()
+        time = 0.8
+        actions.advanceHold()
+        XCTAssertEqual(mic.state, .unmuted)
+        actions.handleUp()
+        XCTAssertEqual(mic.state, .muted)
+        let reloaded = MicrophoneActionController(
+            micController: mic, playsFeedback: false, observesWake: false, defaults: defaults
+        )
+        XCTAssertEqual(reloaded.holdThreshold, 1.0)
+        reloaded.setHoldThreshold(0.1)
+        XCTAssertEqual(reloaded.holdThreshold, 0.2)
+        reloaded.setHoldThreshold(2.0)
+        XCTAssertEqual(reloaded.holdThreshold, 1.0)
+        reloaded.setHoldThreshold(0.53)
+        XCTAssertEqual(reloaded.holdThreshold, 0.6)
+        reloaded.setHoldThreshold(.nan)
+        XCTAssertEqual(reloaded.holdThreshold, 0.4)
+    }
+
+    func testTwoQuickTapsToggleTwiceWithoutDelay() {
+        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
+        hardware.muteProperties.insert(1)
+        hardware.mutes[1] = false
+        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
+        let gesture = MicrophoneActionController(micController: mic, playsFeedback: false, observesWake: false)
+        gesture.handleDown()
         gesture.handleUp()
-        XCTAssertEqual(gesture.mode, .toggle)
+        XCTAssertEqual(mic.state, .muted)
+        gesture.handleDown()
+        gesture.handleUp()
+        XCTAssertEqual(mic.state, .unmuted)
         XCTAssertEqual(hardware.setMuteCalls.map(\.muted), [true, false])
     }
 
-    func testSelectingToggleModePreservesCurrentMicrophoneState() {
+    func testLateReleaseClassifiesHoldEvenBeforeTimerRuns() {
         let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = true
         let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
-            micController: mic, playsFeedback: false, observesWake: false,
-            initialMode: .pushToMute
+        var time = 0.0
+        let gesture = MicrophoneActionController(
+            micController: mic, playsFeedback: false, observesWake: false, now: { time }
         )
-        XCTAssertTrue(gesture.setMode(.toggle))
-        XCTAssertEqual(gesture.mode, .toggle)
+        gesture.handleDown()
+        time = 0.4
+        gesture.handleUp()
         XCTAssertEqual(mic.state, .muted)
-        XCTAssertTrue(hardware.setMuteCalls.isEmpty)
+        XCTAssertEqual(hardware.setMuteCalls.map(\.muted), [false, true])
     }
 
-    func testToggleRefreshesExternalStateAndCancellationAllowsNextPress() {
+    func testCancelledShortPressDoesNotToggleAndNextTapWorks() {
         let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
         hardware.muteProperties.insert(1)
         hardware.mutes[1] = false
         let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
-            micController: mic, playsFeedback: false, observesWake: false,
-            initialMode: .toggle
-        )
-        hardware.mutes[1] = true
+        let gesture = MicrophoneActionController(micController: mic, playsFeedback: false, observesWake: false)
         gesture.handleDown()
-        XCTAssertEqual(mic.state, .unmuted)
         gesture.cancelActiveGesture()
-        XCTAssertEqual(mic.state, .unmuted)
+        gesture.handleUp()
+        XCTAssertTrue(hardware.setMuteCalls.isEmpty)
         gesture.handleDown()
+        gesture.handleUp()
         XCTAssertEqual(mic.state, .muted)
-        gesture.handleUp()
-    }
-
-    func testToggleFailedWriteDoesNotReportSuccessAndNextPressCanRetry() {
-        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
-        hardware.muteProperties.insert(1)
-        hardware.mutes[1] = false
-        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
-            micController: mic, playsFeedback: false, observesWake: false,
-            initialMode: .toggle
-        )
-        hardware.muteWritesSucceed = false
-        gesture.handleDown()
-        XCTAssertNotEqual(mic.state, .muted)
-        XCTAssertEqual(hardware.mutes[1], false)
-        gesture.handleUp()
-        hardware.muteWritesSucceed = true
-        gesture.handleDown()
-        XCTAssertEqual(mic.state, .muted)
-        gesture.handleUp()
-    }
-
-    func testSingleTapRunsModeActionAfterDoubleClickWindow() {
-        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
-        hardware.muteProperties.insert(1)
-        hardware.mutes[1] = false
-        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
-            micController: mic,
-            playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToMute,
-            doubleClickWindow: 0.01
-        )
-
-        gesture.handleDown()
-        gesture.handleUp()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
-
-        XCTAssertEqual(mic.state, .muted)
-    }
-
-    func testDoubleTapChangesModeWithoutRunningFirstTap() {
-        let hardware = FakeAudioDeviceController(defaultDeviceID: 1)
-        hardware.muteProperties.insert(1)
-        hardware.mutes[1] = false
-        let mic = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
-            micController: mic,
-            playsFeedback: false,
-            observesWake: false,
-            initialMode: .pushToMute,
-            doubleClickWindow: 1
-        )
-        var reportedMode: HotkeyMode?
-        gesture.onModeChanged = { reportedMode = $0 }
-
-        gesture.handleDown()
-        gesture.handleUp()
-        gesture.handleDown()
-        gesture.handleUp()
-
-        XCTAssertEqual(gesture.mode, .pushToUnmute)
-        XCTAssertEqual(reportedMode, .pushToUnmute)
-        XCTAssertEqual(hardware.setMuteCalls.map(\.muted), [true])
     }
 
     func testLaunchAtLoginApprovalRequestRemainsRegistered() {
@@ -1207,29 +1238,14 @@ final class MicMuteControllerTests: XCTestCase {
             StatusBarController.hotkeyTitle(error: .monitorUnavailable, isActive: false)
                 .contains("fn-key monitor")
         )
-        XCTAssertEqual(
-            StatusBarController.modePresentation(for: .pushToMute).symbol,
-            "mic.slash.circle.fill"
-        )
-        XCTAssertEqual(
-            StatusBarController.modePresentation(for: .pushToUnmute).symbol,
-            "mic.circle.fill"
-        )
-        XCTAssertNotEqual(
-            StatusBarController.modePresentation(for: .pushToMute),
-            StatusBarController.modePresentation(for: .pushToUnmute)
-        )
     }
 
     func testSynthesizedFeedbackBuffersAreFiniteAndSized() {
         let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
         let click = ClickSoundPlayer.makeClickBuffer(format: format, sampleRate: 44_100)
-        let mode = ClickSoundPlayer.makeModeChangeBuffer(format: format, sampleRate: 44_100)
 
         XCTAssertEqual(click.frameLength, AVAudioFrameCount(44_100 * 0.03))
-        XCTAssertEqual(mode.frameLength, AVAudioFrameCount(44_100 * 0.12))
         XCTAssertTrue((0..<Int(click.frameLength)).allSatisfy { click.floatChannelData![0][$0].isFinite })
-        XCTAssertTrue((0..<Int(mode.frameLength)).allSatisfy { mode.floatChannelData![0][$0].isFinite })
     }
 
     func testReadableControlResolutionPrefersReadOnlyAggregateMain() {
@@ -1567,11 +1583,14 @@ extension MicMuteControllerTests {
         hardware.mutes[1] = true
         hardware.deferMuteWrites = true
         let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
+        var gestureTime = 0.0
+        let gesture = MicrophoneActionController(
             micController: controller, playsFeedback: false,
-            observesWake: false, initialMode: .pushToUnmute
+            observesWake: false, now: { gestureTime }
         )
-        gesture.beginHold()
+        gesture.handleDown()
+        gestureTime = 0.4
+        gesture.advanceHold()
         gesture.handleUp()
         hardware.completeDeferredWrites()
         hardware.deferMuteWrites = false
@@ -1614,11 +1633,14 @@ extension MicMuteControllerTests {
         hardware.mutes[1] = true
         hardware.deferMuteWrites = true
         let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
+        var gestureTime = 0.0
+        let gesture = MicrophoneActionController(
             micController: controller, playsFeedback: false,
-            observesWake: false, initialMode: .pushToUnmute
+            observesWake: false, now: { gestureTime }
         )
-        gesture.beginHold()
+        gesture.handleDown()
+        gestureTime = 0.4
+        gesture.advanceHold()
         hardware.muteWritesSucceed = false
         gesture.handleUp()
         controller.refreshState()
@@ -1636,11 +1658,14 @@ extension MicMuteControllerTests {
         hardware.volumes[1] = 0.42
         hardware.deferVolumeWrites = true
         let controller = MicMuteController(hardware: hardware, observeSystemChanges: false)
-        let gesture = PushToTalkController(
+        var gestureTime = 0.0
+        let gesture = MicrophoneActionController(
             micController: controller, playsFeedback: false,
-            observesWake: false, initialMode: .pushToMute
+            observesWake: false, now: { gestureTime }
         )
-        gesture.beginHold()
+        gesture.handleDown()
+        gestureTime = 0.4
+        gesture.advanceHold()
         gesture.handleUp()
         hardware.completeDeferredWrites()
         hardware.deferVolumeWrites = false

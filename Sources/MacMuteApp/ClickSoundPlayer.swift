@@ -14,13 +14,11 @@ final class ClickSoundPlayer {
     private var configChangeObserver: NSObjectProtocol?
     private let format: AVAudioFormat
     private let clickBuffer: AVAudioPCMBuffer
-    private let modeChangeBuffer: AVAudioPCMBuffer
 
     private init() {
         let sampleRate = 44_100.0
         format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         clickBuffer = Self.makeClickBuffer(format: format, sampleRate: sampleRate)
-        modeChangeBuffer = Self.makeModeChangeBuffer(format: format, sampleRate: sampleRate)
 
         buildGraph()
         observeWake()
@@ -94,12 +92,6 @@ final class ClickSoundPlayer {
         play(clickBuffer)
     }
 
-    /// Feedback for double-click toggling the hotkey's mode — distinct from the mute
-    /// click so the two actions don't feel the same.
-    func playModeChange() {
-        play(modeChangeBuffer)
-    }
-
     private func play(_ buffer: AVAudioPCMBuffer) {
         if !engine.isRunning {
             startEngine()
@@ -129,34 +121,4 @@ final class ClickSoundPlayer {
         return buffer
     }
 
-    /// Two clean rising tones (no noise) reads as a "mode switched" chirp rather than
-    /// a mechanical click.
-    static func makeModeChangeBuffer(format: AVAudioFormat, sampleRate: Double) -> AVAudioPCMBuffer {
-        let noteDuration = 0.05
-        let gap = 0.02
-        let totalDuration = noteDuration * 2 + gap
-        let frameCount = AVAudioFrameCount(sampleRate * totalDuration)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-        buffer.frameLength = frameCount
-
-        let firstToneFrames = Int(sampleRate * noteDuration)
-        let gapFrames = Int(sampleRate * gap)
-        let secondToneStart = firstToneFrames + gapFrames
-
-        let samples = buffer.floatChannelData![0]
-        for i in 0..<Int(frameCount) {
-            if i < firstToneFrames {
-                let t = Double(i) / sampleRate
-                let envelope = exp(-t * 60)
-                samples[i] = Float(sin(2 * Double.pi * 900 * t)) * Float(envelope) * 0.7
-            } else if i >= secondToneStart {
-                let t = Double(i - secondToneStart) / sampleRate
-                let envelope = exp(-t * 60)
-                samples[i] = Float(sin(2 * Double.pi * 1_400 * t)) * Float(envelope) * 0.7
-            } else {
-                samples[i] = 0
-            }
-        }
-        return buffer
-    }
 }
